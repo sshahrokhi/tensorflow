@@ -44,12 +44,12 @@ limitations under the License.
 #include "tensorflow/stream_executor/tpu/tpu_executor_interface.h"
 #include "tensorflow/stream_executor/tpu/tpu_platform_interface.h"
 #include "tensorflow/stream_executor/tpu/tpu_stream.h"
-
+#include "tensorflow/core/tpu/tpu_executor_dlsym_initializer.h"
 namespace tf_tpu = tensorflow::tpu;
 
 namespace xla {
 namespace {
-
+//static bool tpu_library_finder = tensorflow::tpu::FindAndLoadTpuLibrary();
 class TpuDeviceState : public LocalDeviceState {
  public:
   TpuDeviceState(se::StreamExecutor* executor, LocalClient* client,
@@ -80,7 +80,7 @@ Status TpuDeviceState::ThenMemcpyDeviceToDevice(
 }
 
 }  // namespace
-
+//static bool tpu_library_finder = tensorflow::tpu::FindAndLoadTpuLibrary();
 PjRtTpuClient::PjRtTpuClient(
     LocalClient* client,
     std::vector<std::unique_ptr<PjRtStreamExecutorDevice>> devices,
@@ -167,7 +167,7 @@ StatusOr<std::string> PjRtTpuClient::SerializeExecutable(
           se_executable->executables()[0]->executable());
   return tpu_executable->Serialize();
 }
-
+//static bool tpu_library_finder = tensorflow::tpu::FindAndLoadTpuLibrary();
 StatusOr<std::unique_ptr<PjRtExecutable>> PjRtTpuClient::DeserializeExecutable(
     absl::string_view serialized, CompileOptions options) {
   TF_ASSIGN_OR_RETURN(std::unique_ptr<TpuExecutable> tpu_executable,

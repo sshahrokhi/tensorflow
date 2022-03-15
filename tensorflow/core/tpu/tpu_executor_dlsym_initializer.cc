@@ -15,6 +15,7 @@ limitations under the License.
 
 // TODO(skye): this is largely a copy of tpu_api_dlsym_initializer.cc. Figure
 // out how to deduplicate these files a little.
+#include "tensorflow/core/tpu/tpu_executor_dlsym_initializer.h"
 
 #include <dlfcn.h>
 
@@ -33,6 +34,9 @@ namespace tpu {
 namespace {
 #if defined(PLATFORM_GOOGLE)
 Status InitializeTpuLibrary(void* library_handle) {
+  return errors::Unimplemented("You must statically link in a TPU library.");
+}
+bool FindAndLoadTpuLibrary() {
   return errors::Unimplemented("You must statically link in a TPU library.");
 }
 #else  // PLATFORM_GOOGLE
@@ -77,7 +81,7 @@ bool FindAndLoadTpuLibrary() {
   return true;
 }
 
-static bool tpu_library_finder = FindAndLoadTpuLibrary();
+//static bool tpu_library_finder = FindAndLoadTpuLibrary();
 #endif  // PLATFORM_GOOGLE
 }  // namespace
 }  // namespace tpu

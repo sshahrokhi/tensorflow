@@ -15,13 +15,13 @@ limitations under the License.
 
 #include "tensorflow/stream_executor/tpu/tpu_platform.h"
 
+//#include <dlfcn.h>
 #include "tensorflow/c/tf_status.h"
 #include "tensorflow/c/tf_status_helper.h"
 #include "tensorflow/core/tpu/tpu_api.h"
 #include "tensorflow/stream_executor/tpu/status_helper.h"
 #include "tensorflow/stream_executor/tpu/tpu_executor.h"
 #include "tensorflow/stream_executor/tpu/tpu_platform_id.h"
-
 namespace tensorflow {
 namespace tpu {
 
@@ -44,7 +44,6 @@ TpuPlatform* TpuPlatform::GetRegisteredPlatform() {
 Status TpuPlatform::Initialize(
     const std::map<std::string, std::string>& platform_options) {
   StatusHelper status;
-
   size_t options_size = platform_options.size();
   const char** options_key =
       static_cast<const char**>(malloc(sizeof(const char*) * options_size));
