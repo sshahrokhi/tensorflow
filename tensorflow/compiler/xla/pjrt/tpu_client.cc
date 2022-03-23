@@ -80,7 +80,8 @@ Status TpuDeviceState::ThenMemcpyDeviceToDevice(
 }
 
 }  // namespace
-//static bool tpu_library_finder = tensorflow::tpu::FindAndLoadTpuLibrary();
+
+//bool tpu_library_finder = tensorflow::tpu::FindAndLoadTpuLibrary();
 PjRtTpuClient::PjRtTpuClient(
     LocalClient* client,
     std::vector<std::unique_ptr<PjRtStreamExecutorDevice>> devices,
@@ -95,6 +96,7 @@ PjRtTpuClient::PjRtTpuClient(
         // Example platform version string:
         //   libtpu version 0.0.1
         //   Built on Mar 4 2021 15:25:57 (1614900357) cl/360760169
+	//static bool tpu_library_finder = tensorflow::tpu::FindAndLoadTpuLibrary();
         tf_tpu::TpuPlatformInterface* platform =
             tf_tpu::TpuPlatformInterface::GetRegisteredPlatform();
         TpuRuntimeVersion version = platform->version();
@@ -245,7 +247,9 @@ GetTpuDevices(
 }
 
 StatusOr<std::shared_ptr<PjRtClient>> GetTpuClient(
-    int max_inflight_computations, absl::Duration init_retry_timeout) {
+    int max_inflight_computations, absl::Duration init_retry_timeout) {	
+  Status tpu_library_finder = tensorflow::tpu::FindAndLoadTpuLibrary();
+    LOG(INFO) << tpu_library_finder;
   tf_tpu::TpuPlatformInterface* platform =
       tf_tpu::TpuPlatformInterface::GetRegisteredPlatform(
           /*initialize_platform=*/true, /*num_tries=*/1);

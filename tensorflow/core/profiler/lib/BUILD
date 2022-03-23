@@ -178,7 +178,7 @@ tf_cuda_library(
     visibility = ["//tensorflow:internal"],
     deps = [
         "//tensorflow/core/profiler/internal/cpu:host_tracer",
-    ] + if_libtpu(["//tensorflow/core/profiler/internal/tpu:tpu_tracer"]),
+    ],# + if_libtpu(["//tensorflow/core/profiler/internal/tpu:tpu_tracer"]),
     alwayslink = True,
 )
 

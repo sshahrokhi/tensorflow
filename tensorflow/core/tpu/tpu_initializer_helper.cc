@@ -27,6 +27,7 @@ limitations under the License.
 #include "absl/strings/str_split.h"
 #include "absl/synchronization/mutex.h"
 #include "tensorflow/core/platform/logging.h"
+//#include "tensorflow/core/platform/status.h"
 
 namespace tensorflow {
 namespace tpu {
@@ -83,11 +84,11 @@ bool IsTpuUsed(int64_t pid) {
 // process it was able to check is using the TPU. It does not have permission to
 // processes owned by another user. 
 // TODO (shahrokhi) use tensorflow/core/platform/filesystem (GetChildren) for this.
-bool FindAndLogLibtpuProcess() {
+std::string FindAndLogLibtpuProcess() {
   DIR* proc = opendir("/proc");
 
   if (proc == nullptr) {
-    return false;
+    return "";
   }
   std::unique_ptr<DIR, int (*)(DIR*)> proc_dir(proc, closedir);
   struct dirent* ent;
@@ -97,16 +98,18 @@ bool FindAndLogLibtpuProcess() {
 
     pid = strtol(ent->d_name, nullptr, 10);
     if (IsTpuUsed(pid)) {
-      LOG(INFO) << "libtpu.so is already in use by process with pid "
-                << pid
-                << ". Not attempting to load libtpu.so in this process.";
-      return true;
+      std::string message = "libtpu.so is already in use by process with pid " + std::to_string(pid) + ". Not attempting to load libtpu.so in this process.";
+      return (message);
+     // LOG(INFO) << "libtpu.so is already in use by process with pid "
+     //           << pid
+     //           << ". Not attempting to load libtpu.so in this process.";
+     // return true;
     }
   }
-  return false;
+  return "";
 }
 
-bool TryAcquireTpuLock() {
+Status TryAcquireTpuLock() {
   static absl::Mutex* mu = new absl::Mutex();
   absl::MutexLock l(mu);
 
@@ -118,9 +121,9 @@ bool TryAcquireTpuLock() {
         absl::StrCat(getenv("TPU_LOAD_LIBRARY"));
 
     if (load_library_override == "1") {
-      return true;
+      return tensorflow::Status::OK();
     } else if (load_library_override == "0") {
-      return false;
+      return tensorflow::Status(tensorflow::error::Code(9), "load library override is not set");
     }
     should_load_library = true;
 
@@ -146,26 +149,32 @@ bool TryAcquireTpuLock() {
       // This lock is held until the process exits intentionally. The underlying
       // TPU device will be held on until it quits.
       if (lockf(fd, F_TLOCK, 0) != 0) {
-        if (!FindAndLogLibtpuProcess()) {
-          LOG(INFO) << "libtpu.so already in use by another process probably"
-                       " owned by another user. "
-                       "Run \"$ sudo lsof -w /dev/accel0\" to figure out "
-                       "which process is using the TPU. Not "
-                       "attempting to load libtpu.so in this process.";
+	std::string error_message = FindAndLogLibtpuProcess();
+        if (error_message == "") {
+	  error_message = "libtpu.so already in use by another process probably  owned by another user. Run \"$ sudo lsof -w /dev/accel0\" to figure out which process is using the TPU. Not attempting to load libtpu.so in this process.";
+	  
+         // LOG(INFO) << "libtpu.so already in use by another process probably"
+         //              " owned by another user. "
+         //              "Run \"$ sudo lsof -w /dev/accel0\" to figure out "
+         //              "which process is using the TPU. Not "
+         //              "attempting to load libtpu.so in this process.";
         }
-        should_load_library = false;
+        //should_load_library = false;
+	return tensorflow::Status(tensorflow::error::Code(9), error_message);
       } else {
-        should_load_library = true;
+	return tensorflow::Status::OK();
+        //should_load_library = true;
       }
     } else {
       VLOG(1) << "TPU_CHIPS_PER_PROCESS_BOUNDS is not empty or "
                  "ALLOW_MULTIPLE_LIBTPU_LOAD is set to True, "
                  "therefore allowing multiple libtpu.so loads.";
-      should_load_library = true;
+      //should_load_library = true;
+      return tensorflow::Status::OK();
     }
   }
 
-  return should_load_library;
+  //return should_load_library;
 }
 
 std::pair<std::vector<std::string>, std::vector<const char*>>

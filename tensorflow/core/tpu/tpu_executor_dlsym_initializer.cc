@@ -31,7 +31,7 @@ limitations under the License.
 
 namespace tensorflow {
 namespace tpu {
-namespace {
+
 #if defined(PLATFORM_GOOGLE)
 Status InitializeTpuLibrary(void* library_handle) {
   return errors::Unimplemented("You must statically link in a TPU library.");
@@ -65,7 +65,7 @@ Status InitializeTpuLibrary(void* library_handle) {
   return s;
 }
 
-bool FindAndLoadTpuLibrary() {
+Status FindAndLoadTpuLibrary() {
   const char* env_value = getenv("TPU_LIBRARY_PATH");
   const char* libtpu_path =
       env_value && strlen(env_value) > 0 ? env_value : "libtpu.so";
@@ -74,15 +74,20 @@ bool FindAndLoadTpuLibrary() {
   if (library) {
     // We can open the shared library which means we are in a TPU environment.
     // Try to acquire exclusive access.
-    if (TryAcquireTpuLock()) {
+    Status s = TryAcquireTpuLock();
+    if (s == Status::OK()) {
       InitializeTpuLibrary(library);
     }
+    else {
+      return s;
+    }
+
   }
-  return true;
+  return Status::OK();
 }
 
 //static bool tpu_library_finder = FindAndLoadTpuLibrary();
 #endif  // PLATFORM_GOOGLE
-}  // namespace
+  // namespace
 }  // namespace tpu
 }  // namespace tensorflow

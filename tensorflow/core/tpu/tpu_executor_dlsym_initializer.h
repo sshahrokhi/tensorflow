@@ -26,7 +26,7 @@ namespace tensorflow {
 namespace tpu {
 
 Status InitializeTpuLibrary(void* library_handle);
-bool FindAndLoadTpuLibrary();
+Status FindAndLoadTpuLibrary();
 
 }  // namespace tpu
 }  // namespace tensorflow

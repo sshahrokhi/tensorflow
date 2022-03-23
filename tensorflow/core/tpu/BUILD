@@ -157,6 +157,7 @@ cc_library(
     hdrs = ["tpu_initializer_helper.h"],
     deps = [
         "//tensorflow/core/platform:logging",
+	"//tensorflow/core/platform:status",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
     ],
@@ -208,7 +209,7 @@ cc_library(
     ],
     # Always link this in, because even if we don't use it directly we want its
     #static initializers to dynamically load API symbols exported from libtpu.so
-    alwayslink = False,
+    alwayslink = True,
 )
 
 # This is an alternative to "tpu_api_dlsym_initializer" that only initializes
