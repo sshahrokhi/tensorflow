@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 include "mlir/IR/OpBase.td"
-include "mlir/Dialect/StandardOps/IR/Ops.td"
+include "mlir/Dialect/Func/IR/FuncOps.td"
 include "tensorflow/compiler/mlir/tensorflow/ir/tf_ops.td"
 include "tensorflow/compiler/mlir/tensorflow/transforms/rewrite_util.td"
 
@@ -213,6 +213,14 @@ class BinaryNoNanPat<Op FromOp, Op ToOp>
 def LowerDivNoNanOp : BinaryNoNanPat<TF_DivNoNanOp, TF_DivOp>;
 
 def LowerMulNoNanOp : BinaryNoNanPat<TF_MulNoNanOp, TF_MulOp>;
+
+//===----------------------------------------------------------------------===//
+// TruncateDiv op patterns.
+//===----------------------------------------------------------------------===//
+
+def LowerTruncateDivOp : Pat<
+  (TF_TruncateDivOp $lhs, $rhs),
+  (TF_DivOp $lhs, $rhs)>;
 
 //===----------------------------------------------------------------------===//
 // Fill op patterns.

@@ -15,9 +15,11 @@ limitations under the License.
 
 #include "tensorflow/compiler/jit/xla_tpu_device.h"
 
+#include "absl/types/optional.h"
 #include "tensorflow/compiler/jit/kernels/xla_ops.h"
 #include "tensorflow/compiler/jit/xla_device.h"
 #include "tensorflow/compiler/jit/xla_device_ops.h"
+#include "tensorflow/compiler/tf2xla/layout_util.h"
 #include "tensorflow/compiler/tf2xla/shape_util.h"
 #include "tensorflow/compiler/tf2xla/tf2xla_util.h"
 #include "tensorflow/compiler/tf2xla/xla_helpers.h"
@@ -198,11 +200,15 @@ void TpuDeviceToDeviceCopy(DeviceContext* src_dev_context,
     TF_RET_CHECK(xla_output != nullptr && !xla_output->has_shaped_buffer());
     TF_RET_CHECK(input->shape() == output->shape());
 
-    TF_ASSIGN_OR_RETURN(
-        xla::Shape shape,
-        dst_xla_context->shape_representation_fn()(
-            input->shape(), input->dtype(),
-            /*use_fast_memory=*/false, XlaLayoutPreference::kNoPreference));
+    const auto& shape_determination_fns =
+        dst_xla_context->shape_determination_fns();
+    XlaLayoutPreference layout_preference =
+        shape_determination_fns.layout_preference_fn(
+            input->shape(), input->dtype(), absl::nullopt);
+    TF_ASSIGN_OR_RETURN(xla::Shape shape,
+                        shape_determination_fns.shape_representation_fn(
+                            input->shape(), input->dtype(),
+                            /*use_fast_memory=*/false, layout_preference));
     TF_RETURN_IF_ERROR(xla_output->AllocateShapedBuffer(
         input->dtype(), shape, dst_xla_context->client(), dst_device_ordinal));
 
@@ -376,14 +382,16 @@ Status TpuNodeDeviceFactory::CreateDevices(
     // We set `use_global_compute_stream` to true for TPUs as TPUs can only
     // have one program running on each core at the same time.
     options.use_global_compute_stream = true;
-    options.shape_representation_fns = {&TpuShapeRepresentation};
+    XlaShapeLayoutHelpers::ShapeDeterminationFns shape_determination_fns{
+        UseNoPreferenceLayoutFn(), &TpuShapeRepresentation};
+    options.shape_determination_fns = {shape_determination_fns};
     options.padded_shape_fn = &TpuPaddedShapeFn;
     auto device = absl::make_unique<XlaDevice>(session_options, options);
 
-    // The GpuDeviceInfo actually provides information not only for GPU
+    // The AcceleratorDeviceInfo actually provides information not only for GPU
     // devices but also for TPU. The name is a legacy from the pre-TPU
     // dark ages.
-    Status status = device->UseGpuDeviceInfo();
+    Status status = device->UseAcceleratorDeviceInfo();
     if (!status.ok()) {
       errors::AppendToMessage(&status, "while setting up ", DEVICE_TPU_XLA_JIT,
                               " device number ", i);

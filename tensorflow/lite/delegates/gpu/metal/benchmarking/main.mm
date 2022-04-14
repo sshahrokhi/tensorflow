@@ -40,6 +40,149 @@ namespace gpu {
 namespace metal {
 namespace {
 
+void FillInputTensor(tflite::Interpreter* interpreter) {
+  for (int k = 0; k < interpreter->inputs().size(); ++k) {
+    TfLiteTensor* tensor_ptr = interpreter->tensor(interpreter->inputs()[k]);
+    const auto tensor_elements_count = tflite::NumElements(tensor_ptr);
+    if (tensor_ptr->type == kTfLiteFloat32) {
+      float* p = interpreter->typed_input_tensor<float>(k);
+      for (int i = 0; i < tensor_elements_count; ++i) {
+        p[i] = std::sin(i);
+      }
+    }
+    if (tensor_ptr->type == kTfLiteInt32) {
+      int* p = interpreter->typed_input_tensor<int>(k);
+      for (int i = 0; i < tensor_elements_count; ++i) {
+        p[i] = i % 32;
+      }
+    }
+    if (tensor_ptr->type == kTfLiteInt8) {
+      int8_t* p = interpreter->typed_input_tensor<int8_t>(k);
+      for (int i = 0; i < tensor_elements_count; ++i) {
+        p[i] = i % 256 - 128;
+      }
+    }
+    if (tensor_ptr->type == kTfLiteUInt8) {
+      uint8_t* p = interpreter->typed_input_tensor<uint8_t>(k);
+      for (int i = 0; i < tensor_elements_count; ++i) {
+        p[i] = i % 256;
+      }
+    }
+  }
+}
+
+absl::Status CompareCPUGPUResults(tflite::Interpreter* cpu, const std::vector<Value*>& outputs,
+                                  InferenceContext* gpu_context, float per_element_eps) {
+  for (int i = 0; i < outputs.size(); ++i) {
+    TfLiteTensor* tensor_ptr = cpu->tensor(outputs[i]->tensor.ref);
+    const auto tensor_elements_count = tflite::NumElements(tensor_ptr);
+
+    std::cout << "Output " << tensor_ptr->name << ":" << std::endl;
+
+    tflite::gpu::TensorFloat32 gpu_tensor;
+    RETURN_IF_ERROR(gpu_context->GetOutputTensor(outputs[i]->id, &gpu_tensor));
+
+    const int kMaxPrint = 10;
+    int printed = 0;
+    int total_different = 0;
+    for (int k = 0; k < tensor_elements_count; ++k) {
+      float cpu_val = 0.0f;
+      float gpu_val = 0.0f;
+      if (tensor_ptr->type == kTfLiteFloat32) {
+        const float* cpu_out = tensor_ptr->data.f;
+        const float* gpu_out = gpu_tensor.data.data();
+        cpu_val = cpu_out[k];
+        gpu_val = gpu_out[k];
+      }
+      const float abs_diff = fabs(cpu_val - gpu_val);
+      if (abs_diff > per_element_eps) {
+        total_different++;
+        if (printed < kMaxPrint) {
+          std::cout << "Element #" << k << ": CPU value - " << cpu_val << ", GPU value - "
+                    << gpu_val << ", abs diff - " << abs_diff << std::endl;
+          printed++;
+        }
+        if (printed == kMaxPrint) {
+          std::cout << "Printed " << kMaxPrint << " different elements, threshhold - "
+                    << per_element_eps << ", next different elements skipped" << std::endl;
+          printed++;
+        }
+      }
+    }
+    std::cout << "Total " << total_different << " different elements, for output #" << i
+              << ", threshhold - " << per_element_eps << std::endl;
+  }
+  return absl::OkStatus();
+}
+
+absl::Status TestCorrectnessVsTfliteCPU(const std::unique_ptr<FlatBufferModel>& flatbuffer,
+                                        GraphFloat32* graph, bool use_fp16 = true,
+                                        float per_element_eps = 1e-4f) {
+  id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+  std::string device_name = std::string([[device name] UTF8String]);
+  GpuInfo gpu_info;
+  GetGpuInfoFromDeviceDescription(device_name, GpuApi::kMetal, &gpu_info);
+  CalculationsPrecision precision;
+  if (use_fp16) {
+    if (gpu_info.IsRoundToNearestSupported()) {
+      precision = CalculationsPrecision::F16;
+    } else {
+      precision = CalculationsPrecision::F32_F16;
+    }
+  } else {
+    precision = CalculationsPrecision::F32;
+  }
+
+  CreateGpuModelInfo create_info;
+  create_info.precision = precision;
+  create_info.storage_type = GetFastestStorageType(gpu_info);
+  create_info.hints.Add(ModelHints::kAllowSpecialKernels);
+  InferenceContext inference_context;
+  RETURN_IF_ERROR(inference_context.InitFromGraphWithTransforms(create_info, graph, device));
+
+  ops::builtin::BuiltinOpResolver op_resolver;
+  tflite::InterpreterBuilder builder(*flatbuffer, op_resolver);
+
+  // CPU.
+  std::unique_ptr<tflite::Interpreter> cpu_inference;
+  builder(&cpu_inference);
+  if (!cpu_inference) {
+    return absl::InternalError("Failed to build CPU inference.");
+  }
+  auto status = cpu_inference->AllocateTensors();
+  if (status != kTfLiteOk) {
+    return absl::InternalError("Failed to AllocateTensors for CPU inference.");
+  }
+  FillInputTensor(cpu_inference.get());
+  status = cpu_inference->Invoke();
+  if (status != kTfLiteOk) {
+    return absl::InternalError("Failed to Invoke CPU inference.");
+  }
+
+  for (auto& input : graph->inputs()) {
+    TensorFloat32 src_tensor;
+    src_tensor.id = input->id;
+    src_tensor.shape = input->tensor.shape;
+    src_tensor.data.resize(src_tensor.shape.DimensionsProduct());
+    for (int j = 0; j < src_tensor.data.size(); ++j) {
+      src_tensor.data[j] = std::sin(j);
+    }
+    RETURN_IF_ERROR(inference_context.SetInputTensor(input->id, src_tensor));
+  }
+
+  id<MTLCommandQueue> command_queue = [device newCommandQueue];
+  id<MTLCommandBuffer> command_buffer = [command_queue commandBuffer];
+  id<MTLComputeCommandEncoder> encoder = [command_buffer computeCommandEncoder];
+  inference_context.EncodeWithEncoder(encoder);
+  [encoder endEncoding];
+  [command_buffer commit];
+  [command_buffer waitUntilCompleted];
+
+  RETURN_IF_ERROR(CompareCPUGPUResults(cpu_inference.get(), graph->outputs(), &inference_context,
+                                       per_element_eps));
+  return absl::OkStatus();
+}
+
 absl::Status GPUBenchmark(GraphFloat32* graph, int num_tests, int iterations,
                           bool use_fp16 = true) {
   id<MTLDevice> device = MTLCreateSystemDefaultDevice();
@@ -57,7 +200,7 @@ absl::Status GPUBenchmark(GraphFloat32* graph, int num_tests, int iterations,
     precision = CalculationsPrecision::F32;
   }
 
-  InferenceContext::CreateInferenceInfo create_info;
+  CreateGpuModelInfo create_info;
   create_info.precision = precision;
   create_info.storage_type = GetFastestStorageType(gpu_info);
   create_info.hints.Add(ModelHints::kAllowSpecialKernels);
@@ -71,9 +214,14 @@ absl::Status GPUBenchmark(GraphFloat32* graph, int num_tests, int iterations,
     inference_context.Profile(device, &profiling_info);
     std::cout << profiling_info.GetDetailedReport() << std::endl;
   }
-  uint64_t mem_bytes = inference_context.GetIntermediateTensorsSize();
-  std::cout << "Memory for intermediate tensors - " << mem_bytes / 1024.0 / 1024.0 << " MB"
+  uint64_t runtime_mem_bytes = inference_context.GetIntermediateTensorsSize();
+  std::cout << "Memory for intermediate tensors - " << runtime_mem_bytes / 1024.0 / 1024.0 << " MB"
             << std::endl;
+  const uint64_t const_mem_bytes = inference_context.GetConstantTensorsSize();
+  std::cout << "Memory for constant tensors - " << const_mem_bytes / 1024.0 / 1024.0 << " MB"
+            << std::endl;
+  std::cout << "Total tensors memory(const + intermediate) - "
+            << (const_mem_bytes + runtime_mem_bytes) / 1024.0 / 1024.0 << " MB" << std::endl;
   const std::string precision_str = use_fp16 ? "FP16" : "FP32";
   std::cout << "Measuring started: (" << num_tests << " tests, " << iterations
       << " iterations every test, " << precision_str << " precision)" << std::endl;
@@ -99,6 +247,116 @@ absl::Status GPUBenchmark(GraphFloat32* graph, int num_tests, int iterations,
                 iterations;
     std::cout << "  Test: #" << j << " - " << t0 << "ms" << std::endl;
   }
+  return absl::OkStatus();
+}
+
+absl::Status GPUBenchmarkSerialized(GraphFloat32* graph, bool use_fp16 = true) {
+  id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+  std::string device_name = std::string([[device name] UTF8String]);
+  GpuInfo gpu_info;
+  GetGpuInfoFromDeviceDescription(device_name, GpuApi::kMetal, &gpu_info);
+  CalculationsPrecision precision;
+  if (use_fp16) {
+    if (gpu_info.IsRoundToNearestSupported()) {
+      precision = CalculationsPrecision::F16;
+    } else {
+      precision = CalculationsPrecision::F32_F16;
+    }
+  } else {
+    precision = CalculationsPrecision::F32;
+  }
+
+  CreateGpuModelInfo create_info;
+  create_info.precision = precision;
+  create_info.storage_type = GetFastestStorageType(gpu_info);
+  create_info.hints.Add(ModelHints::kAllowSpecialKernels);
+
+  InferenceContext inference_context;
+  std::vector<uint8_t> serialized_model;
+  RETURN_IF_ERROR(
+      inference_context.InitFromGraphWithTransforms(create_info, graph, device, &serialized_model));
+
+  {  // calculating time without building serialized model
+    InferenceContext test_context;
+    const auto start = std::chrono::high_resolution_clock::now();
+    RETURN_IF_ERROR(test_context.InitFromGraphWithTransforms(create_info, graph, device));
+    const auto end = std::chrono::high_resolution_clock::now();
+    const double total_time_ms = (end - start).count() * 1e-6f;
+    std::cout << "Inference context initialization total time - " << total_time_ms << "ms"
+              << std::endl;
+  }
+
+  std::vector<TensorFloat32> src_tensors(graph->inputs().size());
+  for (int i = 0; i < graph->inputs().size(); ++i) {
+    src_tensors[i].id = graph->inputs()[i]->id;
+    src_tensors[i].shape = graph->inputs()[i]->tensor.shape;
+    src_tensors[i].data.resize(src_tensors[i].shape.DimensionsProduct());
+    for (int j = 0; j < src_tensors[i].data.size(); ++j) {
+      src_tensors[i].data[j] = std::sin(j);
+    }
+  }
+  for (int i = 0; i < graph->inputs().size(); ++i) {
+    RETURN_IF_ERROR(inference_context.SetInputTensor(graph->inputs()[i]->id, src_tensors[i]));
+  }
+  @autoreleasepool {
+    id<MTLCommandQueue> command_queue = [device newCommandQueue];
+    id<MTLCommandBuffer> command_buffer = [command_queue commandBuffer];
+    id<MTLComputeCommandEncoder> encoder = [command_buffer computeCommandEncoder];
+    inference_context.EncodeWithEncoder(encoder);
+    [encoder endEncoding];
+    [command_buffer commit];
+    [command_buffer waitUntilCompleted];
+  }
+
+  std::vector<TensorFloat32> dst_tensors(graph->outputs().size());
+  for (int i = 0; i < graph->outputs().size(); ++i) {
+    RETURN_IF_ERROR(inference_context.GetOutputTensor(graph->outputs()[i]->id, &dst_tensors[i]));
+  }
+
+  InferenceContext serialized_context;
+  {
+    const auto start = std::chrono::high_resolution_clock::now();
+    RETURN_IF_ERROR(serialized_context.RestoreDeserialized(serialized_model, device));
+    const auto end = std::chrono::high_resolution_clock::now();
+    const double total_time_ms = (end - start).count() * 1e-6f;
+    std::cout << "Serialized inference context initialization total time - " << total_time_ms
+              << "ms" << std::endl;
+  }
+  for (int i = 0; i < graph->inputs().size(); ++i) {
+    RETURN_IF_ERROR(serialized_context.SetInputTensor(graph->inputs()[i]->id, src_tensors[i]));
+  }
+
+  @autoreleasepool {
+    id<MTLCommandQueue> command_queue = [device newCommandQueue];
+    id<MTLCommandBuffer> command_buffer = [command_queue commandBuffer];
+    id<MTLComputeCommandEncoder> encoder = [command_buffer computeCommandEncoder];
+    serialized_context.EncodeWithEncoder(encoder);
+    [encoder endEncoding];
+    [command_buffer commit];
+    [command_buffer waitUntilCompleted];
+  }
+
+  std::vector<TensorFloat32> dst_tensors_v2(graph->outputs().size());
+  for (int i = 0; i < graph->outputs().size(); ++i) {
+    RETURN_IF_ERROR(
+        serialized_context.GetOutputTensor(graph->outputs()[i]->id, &dst_tensors_v2[i]));
+  }
+
+  for (int i = 0; i < graph->outputs().size(); ++i) {
+    if (dst_tensors[i].data.size() != dst_tensors_v2[i].data.size()) {
+      std::cout << "Different sizes for " << i << " output tensor" << std::endl;
+      break;
+    }
+    for (int j = 0; j < dst_tensors[i].data.size(); ++j) {
+      if (dst_tensors[i].data[j] != dst_tensors_v2[i].data[j]) {
+        std::cout << "Different elements for " << j << " element in " << i
+                  << " tensor: " << dst_tensors[i].data[j] << " - " << dst_tensors_v2[i].data[j]
+                  << std::endl;
+        break;
+      }
+    }
+  }
+
   return absl::OkStatus();
 }
 
@@ -199,7 +457,17 @@ int main(int argc, char** argv) {
         std::cout << "Failed flatbuffer to graph conversion. " << s.message() << std::endl;
       }
 
-      s = tflite::gpu::metal::GPUBenchmark(&graph, 5, 200, true);
+      s = tflite::gpu::metal::GPUBenchmark(&graph, 5, 200, /*use_fp16*/ true);
+      if (!s.ok()) {
+        std::cout << "Error in GPUBenchmark. " << s.message() << std::endl;
+      }
+
+      s = tflite::gpu::metal::TestCorrectnessVsTfliteCPU(flatbuffer, &graph, /*use_fp16*/ true);
+      if (!s.ok()) {
+        std::cout << "Error in GPUBenchmark. " << s.message() << std::endl;
+      }
+
+      s = tflite::gpu::metal::GPUBenchmarkSerialized(&graph, true);
       if (!s.ok()) {
         std::cout << "Error in GPUBenchmark. " << s.message() << std::endl;
       }

@@ -98,6 +98,11 @@ void RecordTFDataIteratorBusy(uint64 duration_us);
 // first `GetNext()` request and responding to the last `GetNext()` request.
 void RecordTFDataIteratorLifetime(uint64 duration_us);
 
+// Records the time histogram (in microseconds) between `IteratorResource`
+// responding to a `GetNext()` request and receiving the next `GetNext()`
+// request.
+void RecordTFDataIteratorGap(uint64 duration_us);
+
 // Records the number of independent graph changes resulting from the
 // application of a tf.data optimization.
 //
@@ -117,6 +122,9 @@ void RecordTFDataServiceClientIterators(
     int64_t worker_uid, tensorflow::data::DeploymentMode deployment_mode,
     const tensorflow::data::ProcessingModeDef& processing_mode,
     bool is_coordinated_read);
+
+// Records tf.data service multi-trainer cache queries.
+void RecordTFDataServiceMultiTrainerCacheQuery(bool cache_hit);
 
 // Records the file name read by a tf.data Dataset.
 //
@@ -180,6 +188,26 @@ void RecordUnusedOutput(const string& op_name);
 //
 // TODO(jtkeeling): Should we record building/optimizing tf.functions?
 void UpdateGraphBuildTime(const uint64 running_time_usecs);
+
+// Records the status of a graph passing through various states/stages of
+// TfMlirGraphOptimizationPass processing using
+// tf_metadata.tf_mlir_update_graph_optimization_pass_state_counter metric.
+// 'pass_state' identifies the state of the pass
+// (or "PassState" metric field) and 'processing_state' refers to the stage
+// in the process the graph is at (or "ProcessingState" metric field).
+void UpdateTfMlirGraphOptimizationPassStateCounter(
+    const std::string& pass_state, const std::string& processing_state);
+
+// Records the activity of the first phase of the mlir bridge using the
+// tf_metadata.tf_mlir_bridge_first_phase_count metric.
+// device_type: tpu, cpu, gpu, etc.
+// bridge_version: v1 compat, v2, etc.
+// fallback_enabled: true if fallback will happen, false if not
+// result: outcome of bridge (success, failure, disabled, invalid_graph, etc.)
+void UpdateTfMlirBridgeFirstPhaseCounter(const std::string& device_type,
+                                         const std::string& bridge_version,
+                                         bool fallback_enabled,
+                                         const std::string& result);
 
 // Convenience class allowing RAII style of reporting for a monitoring::Counter.
 template <int NumLabels>
@@ -265,7 +293,6 @@ class ScopedCounter final {
 // passes.
 monitoring::Counter<2>* GetGraphOptimizationCounter();
 
-
 // Updates metrics for time to distribute variables to all TPU hosts.
 void UpdateTpuVariableDistributionTime(const uint64 distribution_time_usecs);
 
@@ -274,6 +301,28 @@ void UpdateXlaCompilationTime(const uint64 compilation_time_usecs);
 
 // Updates the metrics stored about time BFC allocator spents during delay.
 void UpdateBfcAllocatorDelayTime(const uint64 delay_usecs);
+
+// Increments (by 1) a simple integer counter that is exposed for testing.
+void IncrementTestCounter(const string& name, const string& label);
+
+// Read-only access to a counter for testing.
+const monitoring::CounterCell* TestCounter(const string& name,
+                                           const string& label);
+
+// Read-only wrapper for a TestCounter to track increments between calls.
+class TestDelta {
+ public:
+  TestDelta(const string& name, const string& label);
+  void Reset();
+  int64 Get();
+
+ private:
+  const monitoring::CounterCell* cell_;
+  int64 last_value_;
+};
+void UpdateTpuErrorCounter(const string& op, const string& error_type);
+void UpdateEagerClientErrorCounter(const string& error_source,
+                                   const string& error_type);
 
 }  // namespace metrics
 }  // namespace tensorflow

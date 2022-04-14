@@ -45,17 +45,15 @@ def mlir_convert(
     or None, log_txt if it did not convert properly.
   """
   test_params = kwargs.get("test_params", {})
-  # TODO(b/146025965): Rename ExtraTocoOptions to ExtraConvertOptions or
-  #                    something else.
-  extra_toco_options = kwargs.get("extra_toco_options",
-                                  zip_test_utils.ExtraTocoOptions())
+  extra_convert_options = kwargs.get("extra_convert_options",
+                                     zip_test_utils.ExtraConvertOptions())
   tflite_model = None
   log = ""
 
   signature_key = signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY
   converter = tf.lite.TFLiteConverter.from_saved_model(
       saved_model_dir, [signature_key])
-  converter.allow_custom_ops = extra_toco_options.allow_custom_ops
+  converter.allow_custom_ops = extra_convert_options.allow_custom_ops
   converter.experimental_new_quantizer = options.mlir_quantizer
   if options.make_tf_ptq_tests:
     if options.hlo_aware_conversion:
@@ -67,6 +65,9 @@ def mlir_convert(
   if options.run_with_flex:
     converter.target_spec.supported_ops = set(
         [tf.lite.OpsSet.TFLITE_BUILTINS, tf.lite.OpsSet.SELECT_TF_OPS])
+
+  if options.enable_dynamic_update_slice:
+    converter._experimental_enable_dynamic_update_slice = True  # pylint: disable=protected-access
 
   if test_params.get("dynamic_range_quantize", False):
     converter.optimizations = [tf.lite.Optimize.DEFAULT]
@@ -101,13 +102,13 @@ def mlir_convert(
       ]
 
     converter.representative_dataset = representative_dataset_gen
-    if extra_toco_options.inference_input_type:
+    if extra_convert_options.inference_input_type:
       converter.inference_input_type = (
-          extra_toco_options.inference_input_type)
+          extra_convert_options.inference_input_type)
 
-    if extra_toco_options.inference_output_type:
+    if extra_convert_options.inference_output_type:
       converter.inference_output_type = (
-          extra_toco_options.inference_output_type)
+          extra_convert_options.inference_output_type)
 
   try:
     tflite_model = converter.convert()

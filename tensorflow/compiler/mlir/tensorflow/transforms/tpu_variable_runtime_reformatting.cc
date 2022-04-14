@@ -26,7 +26,7 @@ limitations under the License.
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Casting.h"
-#include "mlir/Dialect/StandardOps/IR/Ops.h"  // from @llvm-project
+#include "mlir/Dialect/Func/IR/FuncOps.h"  // from @llvm-project
 #include "mlir/IR/Attributes.h"  // from @llvm-project
 #include "mlir/IR/Builders.h"  // from @llvm-project
 #include "mlir/IR/BuiltinOps.h"  // from @llvm-project
@@ -378,8 +378,8 @@ void HandleReplicateOp(TF::WhileRegionOp while_op,
   devices.reserve(device_map.size());
 
   for (auto it : device_map) {
-    auto device_alias = it.first.strref();
-    auto device_list = it.second.cast<ArrayAttr>();
+    auto device_alias = it.getName().strref();
+    auto device_list = it.getValue().cast<ArrayAttr>();
     llvm::SmallVector<StringRef, 4> device_list_for_alias;
     device_list_for_alias.reserve(device_list.size());
 

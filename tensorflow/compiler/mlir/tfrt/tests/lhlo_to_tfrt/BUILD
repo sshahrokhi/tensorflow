@@ -5,22 +5,13 @@ package(licenses = ["notice"])
 
 glob_lit_tests(
     data = [":test_utilities"],
+    default_tags = ["nomsan"],
     driver = "//tensorflow/compiler/mlir:run_lit.sh",
+    exclude = [
+        "ccl.mlir",  # b/216062298
+        "fusion.mlir",  # b/215799570
+    ],
     features = if_oss(["--path=org_tensorflow/tensorflow/compiler/mlir/tfrt"]),
-    tags_override = {
-        "async_conversion.mlir": ["nomsan"],
-        "blas.mlir": ["nomsan"],
-        "ccl.mlir": ["nomsan"],
-        "cholesky.mlir": ["nomsan"],
-        "common.mlir": ["nomsan"],
-        "custom_call.mlir": ["nomsan"],
-        "fusion.mlir": [
-            "nomsan",
-            "no_oss",
-        ],
-        "memcpy.mlir": ["nomsan"],
-        "memset.mlir": ["nomsan"],
-    },
     test_file_exts = ["mlir"],
 )
 

@@ -128,6 +128,7 @@ load(
     "//third_party/mkl:build_defs.bzl",
     "if_mkl",
 )
+load("//tensorflow:tensorflow.bzl", "get_compatible_with_portable")
 
 package(
     default_visibility = [
@@ -135,6 +136,7 @@ package(
         "//tensorflow:internal",
         "//tensorflow_models:__subpackages__",
     ],
+    features = if_google(["-parse_headers"]),
     licenses = ["notice"],
 )
 
@@ -281,6 +283,7 @@ java_proto_library(
 cc_library(
     name = "platform_base",
     hdrs = ["//tensorflow/core/platform:base_hdrs"],
+    compatible_with = get_compatible_with_portable(),
     copts = tf_copts(),
     tags = ["avoid_dep"],
     deps = [
@@ -532,6 +535,13 @@ cc_library(
 )
 
 cc_library(
+    name = "framework_types_hdr",
+    hdrs = ["//tensorflow/core/framework:types.h"],
+    linkstatic = 1,
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
     name = "framework_lite",
     hdrs = [
         "//tensorflow/core/framework:numeric_types.h",
@@ -651,6 +661,7 @@ cc_library(
         "//tensorflow/core/kernels:pooling_ops",
         "//tensorflow/core/kernels:quantized_ops",
         "//tensorflow/core/kernels:ragged_ops",
+        "//tensorflow/core/kernels:random_index_shuffle_ops",
         "//tensorflow/core/kernels:random_ops",
         "//tensorflow/core/kernels:stateful_random_ops",
         "//tensorflow/core/kernels:random_binomial_op",
@@ -682,6 +693,7 @@ cc_library(
         "//tensorflow/core/kernels/mkl:mkl_fused_batch_norm_op",
         "//tensorflow/core/kernels/mkl:mkl_identity_op",
         "//tensorflow/core/kernels/mkl:mkl_input_conversion_op",
+        "//tensorflow/core/kernels/mkl:mkl_layer_norm_op",
         "//tensorflow/core/kernels/mkl:mkl_lrn_op",
         "//tensorflow/core/kernels/mkl:mkl_pooling_ops",
         "//tensorflow/core/kernels/mkl:mkl_qmatmul_op",
@@ -691,6 +703,8 @@ cc_library(
         "//tensorflow/core/kernels/mkl:mkl_reshape_op",
         "//tensorflow/core/kernels/mkl:mkl_slice_op",
         "//tensorflow/core/kernels/mkl:mkl_softmax_op",
+        "//tensorflow/core/kernels/mkl:mkl_swish_op",
+        "//tensorflow/core/kernels/mkl:mkl_fused_mish_op",
         "//tensorflow/core/kernels/mkl:mkl_transpose_op",
         "//tensorflow/core/kernels/mkl:mkl_batch_matmul_op",
         "//tensorflow/core/kernels/mkl:mkl_einsum_op",
@@ -993,6 +1007,7 @@ filegroup(
         "ragged_ops",
         "composite_tensor_ops_op_lib",
         "random_grad_op_lib",
+        "random_index_shuffle_ops_op_lib",
         "random_ops_op_lib",
         "resource_variable_ops_op_lib",
         "risc_ops_op_lib",
@@ -1309,7 +1324,7 @@ cc_library(
             "-lpthread",
         ],
     }),
-    visibility = ["//tensorflow/python:__subpackages__"],
+    visibility = ["//tensorflow:internal"],
     deps = tf_additional_lib_deps() + [
         "@com_google_absl//absl/meta:type_traits",
         "@com_google_absl//absl/strings",
@@ -1457,6 +1472,7 @@ cc_library(
         "//tensorflow/core/platform:stacktrace",
         "//tensorflow/core/platform:stacktrace_handler",
         "//tensorflow/core/platform:status",
+        "//tensorflow/core/platform:statusor",
         "//tensorflow/core/platform:strcat",
         "//tensorflow/core/platform:stringpiece",
         "//tensorflow/core/platform:stringprintf",
@@ -1510,6 +1526,7 @@ cc_library(
         "//tensorflow/core/platform/default:integral_types.h",
         "//tensorflow/core/platform/default:logging.h",
     ],
+    compatible_with = get_compatible_with_portable(),
     copts = tf_copts(),
     linkopts = select({
         "//tensorflow:freebsd": [],
@@ -1564,6 +1581,7 @@ filegroup(
         "//tensorflow/core/framework:framework_internal_private_hdrs",
         "//tensorflow/core/graph:framework_internal_private_headers",
         "//tensorflow/core/public:session_options.h",
+        "//tensorflow/core/public:version.h",
         "//tensorflow/core/util:framework_internal_private_hdrs",
         "//tensorflow/core/util:memmapped_file_system_hdrs",
         "//tensorflow/core/util/sparse:framework_internal_private_headers_group",
@@ -1621,7 +1639,6 @@ cc_header_only_library(
     deps = [
         ":lib",
         ":lib_internal",
-        ":version_lib",
         "//tensorflow/core/framework:bounds_check",
         "//tensorflow/core/platform/default/build_config:platformlib",
     ],
@@ -1659,7 +1676,6 @@ tf_cuda_library(
         ":lib",
         ":lib_internal",
         ":protos_all_cc",
-        ":version_lib",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",

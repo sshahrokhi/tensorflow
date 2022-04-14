@@ -84,12 +84,23 @@ def ApproxTopK(
     recall_target: Optional[float],
     aggregate_to_topk: Optional[bool],
     reduction_input_size_override: Optional[int]) -> XlaOp: ...
+def ApproxTopKFallback(
+    builder: XlaBuilder,
+    operands: Sequence[XlaOp],
+    init_values: Sequence[XlaOp],
+    top_k: int,
+    reduction_dim: int,
+    comparator: XlaComputation,
+    recall_target: Optional[float],
+    aggregate_to_topk: Optional[bool],
+    reduction_input_size_override: Optional[int]) -> XlaOp: ...
 def ApproxTopKReductionOutputSize(
     input_size: int,
     rank: int,
     top_k: int,
     recall_target: float,
-    aggregate_to_topk: Optional[bool]) -> Tuple[int, int]: ...
+    aggregate_to_topk: Optional[bool] = ...,
+    input_size_override: Optional[int] = ...) -> Tuple[int, int]: ...
 def ReduceScatter(
     operand: XlaOp,
     computation: XlaComputation,
@@ -148,7 +159,7 @@ def ConvGeneralDilated(
     dimension_numbers: _ConvDimensionNumbers,
     feature_group_count: int = ...,
     batch_group_count: int = ...,
-    precision_config: PrecisionConfig_Precision = ...,
+    precision_config: Optional[PrecisionConfig_Precision] = ...,
     preferred_element_type: Optional[PrimitiveType] = ...) -> XlaOp: ...
 def ConvertElementType(
     operand: XlaOp,
@@ -191,13 +202,13 @@ def CustomCallWithAliasing(
 def Dot(
     lhs: XlaOp,
     rhs: XlaOp,
-    precision_config: PrecisionConfig_Precision = ...,
+    precision_config: Optional[PrecisionConfig_Precision] = ...,
     preferred_element_type: Optional[PrimitiveType] = ...) -> XlaOp: ...
 def DotGeneral(
     lhs: XlaOp,
     rhs: XlaOp,
     dimensions_numbers: _DotDimensionNumbers,
-    precision_config: PrecisionConfig_Precision = ...,
+    precision_config: Optional[PrecisionConfig_Precision] = ...,
     preferred_element_type: Optional[PrimitiveType] = ...) -> XlaOp: ...
 def DynamicReshape(
     operand: XlaOp,
@@ -405,6 +416,7 @@ def Log(__arg: XlaOp) -> XlaOp: ...
 def Log1p(__arg: XlaOp) -> XlaOp: ...
 def Sign(__arg: XlaOp) -> XlaOp: ...
 def Cos(__arg: XlaOp) -> XlaOp: ...
+def OptimizationBarrier(__arg: XlaOp) -> XlaOp: ...
 def Sin(__arg: XlaOp) -> XlaOp: ...
 def Tanh(__arg: XlaOp) -> XlaOp: ...
 def IsFinite(__arg: XlaOp) -> XlaOp: ...

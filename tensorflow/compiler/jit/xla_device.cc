@@ -144,12 +144,13 @@ static DeviceAttributes BuildXlaDeviceAttributes(const string& name_prefix,
 
 XlaDevice::Metadata::Metadata(
     int device_ordinal, se::Platform* platform, const DeviceType& device_type,
-    std::vector<XlaHelpers::ShapeRepresentationFn> shape_representation_fns,
+    std::vector<XlaShapeLayoutHelpers::ShapeDeterminationFns>
+        shape_determination_fns,
     PaddedShapeFn padded_shape_fn, bool use_multiple_streams)
     : device_ordinal_(device_ordinal),
       device_type_(device_type),
       platform_(platform),
-      shape_representation_fns_(std::move(shape_representation_fns)),
+      shape_determination_fns_(std::move(shape_determination_fns)),
       padded_shape_fn_(std::move(padded_shape_fn)),
       use_multiple_streams_(use_multiple_streams) {}
 
@@ -204,7 +205,7 @@ XlaDevice::XlaDevice(const SessionOptions& session_options,
                                            options.device_ordinal)),
       xla_metadata_(options.device_ordinal, options.platform,
                     DeviceType(options.compilation_device_name),
-                    options.shape_representation_fns,
+                    options.shape_determination_fns,
                     options.padded_shape_fn ? options.padded_shape_fn
                                             : DefaultPaddedShapeFn,
                     options.use_multiple_streams),
@@ -214,10 +215,10 @@ XlaDevice::XlaDevice(const SessionOptions& session_options,
       intra_op_parallelism_threads_(
           session_options.config.intra_op_parallelism_threads()),
       use_multiple_streams_(options.use_multiple_streams),
-      shape_representation_fns_(options.shape_representation_fns),
+      shape_determination_fns_(options.shape_determination_fns),
       allowed_devices_(options.allowed_devices),
       use_global_compute_stream_(options.use_global_compute_stream) {
-  if (options.shape_representation_fns.empty()) {
+  if (options.shape_determination_fns.empty()) {
     LOG(ERROR) << "shape_representation_fns must be non-empty.";
   }
   VLOG(1) << "Created XLA device " << options.compilation_device_name << " "
@@ -365,7 +366,7 @@ StatusOr<std::vector<XlaDeviceContext*>> XlaDevice::GetDeviceContextLocked() {
   // XlaDeviceContext remains live for the duration of a Executor run. This
   // ensures that the streams remain live for the duration of a run, even if
   // an error is encountered and the streams are replaced with new ones.
-  for (const auto& iter : shape_representation_fns_) {
+  for (const auto& iter : shape_determination_fns_) {
     auto device_context = new XlaDeviceContext(
         stream_, host_to_device_stream, device_to_host_stream,
         device_to_device_streams, client, iter, thread_pool_.get());
@@ -374,21 +375,22 @@ StatusOr<std::vector<XlaDeviceContext*>> XlaDevice::GetDeviceContextLocked() {
     device_contexts_.emplace_back(device_context);
   }
 
-  // Create and set a new GpuDeviceInfo, if necessary.
+  // Create and set a new AcceleratorDeviceInfo, if necessary.
   //
   // TODO(b/78232898): This isn't thread-safe; there is a race between the call
-  // to set_tensorflow_gpu_device_info() with ops that call the getter
-  // tensorflow_gpu_device_info(). This isn't trivially fixed by adding locking
-  // to those methods; see the bug for details. Our only saving grace at the
-  // moment is that this race doesn't seem to occur in practice.
-  if (use_gpu_device_info_) {
-    auto gpu_device_info = absl::make_unique<GpuDeviceInfo>();
-    gpu_device_info->stream = stream_.get();
-    gpu_device_info->default_context = device_contexts_.at(0);
-    set_tensorflow_gpu_device_info(gpu_device_info.get());
-    gpu_device_info_ = std::move(gpu_device_info);
-    VLOG(1) << "XlaDevice " << this << " new GpuDeviceInfo "
-            << gpu_device_info_.get();
+  // to set_tensorflow_accelerator_device_info() with ops that call the getter
+  // tensorflow_accelerator_device_info(). This isn't trivially fixed by adding
+  // locking to those methods; see the bug for details. Our only saving grace at
+  // the moment is that this race doesn't seem to occur in practice.
+  if (use_accelerator_device_info_) {
+    auto accelerator_device_info =
+        absl::make_unique<DeviceBase::AcceleratorDeviceInfo>();
+    accelerator_device_info->stream = stream_.get();
+    accelerator_device_info->default_context = device_contexts_.at(0);
+    set_tensorflow_accelerator_device_info(accelerator_device_info.get());
+    accelerator_device_info_ = std::move(accelerator_device_info);
+    VLOG(1) << "XlaDevice " << this << " new AcceleratorDeviceInfo "
+            << accelerator_device_info_.get();
   }
 
   return device_contexts_;
@@ -404,9 +406,9 @@ StatusOr<XlaDeviceContext*> XlaDevice::GetDeviceContextDefault() {
   return GetDeviceContextWithIndex(0);
 }
 
-Status XlaDevice::UseGpuDeviceInfo() {
+Status XlaDevice::UseAcceleratorDeviceInfo() {
   mutex_lock lock(mu_);
-  use_gpu_device_info_ = true;
+  use_accelerator_device_info_ = true;
   return GetDeviceContextLocked().status();
 }
 

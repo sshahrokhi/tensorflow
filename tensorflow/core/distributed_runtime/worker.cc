@@ -57,8 +57,7 @@ void Worker::CreateWorkerSessionAsync(const CreateWorkerSessionRequest* request,
   Status s = env_->session_mgr->CreateSession(
       request->session_handle(), request->server_def(),
       request->cluster_device_attributes(), request->isolate_session_state(),
-      request->master_task(), request->master_incarnation(),
-      request->coordination_service_config());
+      request->master_task(), request->master_incarnation());
   done(s);
 }
 
@@ -110,7 +109,9 @@ void Worker::DeregisterGraphAsync(const DeregisterGraphRequest* request,
 }
 
 void Worker::AbortStep(int64_t step_id) {
-  Rendezvous* rendez = env_->rendezvous_mgr->Find(step_id);
+  RemoteRendezvous* rendez = env_->rendezvous_mgr->Find(step_id);
+  // Do not abort if it's a context global instance for eager op-by-op execution
+  if (rendez->IsRemoteEagerContextDefault()) return;
   SchedNonBlockingClosureAfter(1000000, [rendez, step_id]() {
     // Delay a bit before aborting the step. This way, the root
     // cause may return first back to the client instead of this

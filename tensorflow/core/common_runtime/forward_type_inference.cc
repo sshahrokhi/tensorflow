@@ -15,12 +15,15 @@ limitations under the License.
 
 #include "tensorflow/core/common_runtime/forward_type_inference.h"
 
+#include <functional>
 #include <queue>
 #include <string>
 #include <string_view>
 
 #include "absl/container/flat_hash_set.h"
 #include "tensorflow/core/framework/full_type.pb.h"
+#include "tensorflow/core/framework/full_type_util.h"
+#include "tensorflow/core/framework/op_def_builder.h"
 #include "tensorflow/core/platform/errors.h"
 #include "tensorflow/core/util/dump_graph.h"
 
@@ -40,21 +43,6 @@ bool all_inputs_closed(const Node& n, const absl::flat_hash_set<int>& closed) {
     }
   }
   return true;
-}
-
-bool types_different(const FullTypeDef& lhs, const FullTypeDef& rhs) {
-  if (lhs.type_id() != rhs.type_id()) {
-    return true;
-  }
-  if (lhs.args_size() != rhs.args_size()) {
-    return true;
-  }
-  for (int i = 0; i < lhs.args_size(); i++) {
-    if (types_different(lhs.args(i), rhs.args(i))) {
-      return true;
-    }
-  }
-  return false;
 }
 
 }  // namespace
@@ -80,19 +68,26 @@ Status ForwardTypeInferencePass::Run(
 
   static FullTypeDef* no_type = new FullTypeDef();
 
-  auto process_node = [&flib_def](Node* n, bool& updated) {
+  auto process_node = [&flib_def](Node* n, bool& updated, bool& no_type_info) {
     VLOG(3) << "  processing " << n->name();
-    VLOG(4) << "  node " << n->def().DebugString() << "\n  op def "
-            << n->op_def().DebugString();
+    VLOG(4) << "\n  node: " << n->def().DebugString()
+            << "\n  op def: " << n->op_def().DebugString();
     const OpRegistrationData* reg;
     TF_RETURN_IF_ERROR(flib_def->LookUp(n->op_def().name(), &reg));
 
     if (reg->fwd_type_fn == nullptr) {
       VLOG(4) << "  " << n->name() << " no type inference function";
+      no_type_info = true;
       return Status::OK();
     }
 
     std::vector<std::reference_wrapper<const FullTypeDef>> input_types;
+    for (const auto& in_edge : n->in_edges()) {
+      if (in_edge->IsControlEdge()) {
+        continue;
+      }
+      input_types.push_back(*no_type);
+    }
     for (const auto& in_edge : n->in_edges()) {
       if (in_edge->IsControlEdge()) {
         continue;
@@ -103,17 +98,19 @@ Status ForwardTypeInferencePass::Run(
         const auto& t = ndef->experimental_type();
         if (t.type_id() != TFT_UNSET) {
           DCHECK(t.type_id() == TFT_PRODUCT) << ndef->DebugString();
-          DCHECK(t.args_size() >= in_edge->src_output()) << ndef->DebugString();
-          input_types.emplace_back(t.args(in_edge->src_output()));
-        } else {
-          input_types.emplace_back(*no_type);
+          DCHECK(t.args_size() > in_edge->src_output()) << ndef->DebugString();
+          input_types.at(in_edge->dst_input()) = t.args(in_edge->src_output());
         }
-      } else {
-        input_types.emplace_back(*no_type);
       }
     }
 
-    TF_ASSIGN_OR_RETURN(const auto& infer_type, reg->fwd_type_fn(input_types));
+    // TODO(b/224775462): Populate with types from function references.
+    TypeRefMap type_vars;
+
+    const auto& infer_ret = reg->fwd_type_fn(input_types, type_vars);
+    TF_RETURN_WITH_CONTEXT_IF_ERROR(
+        infer_ret.status(), "while inferring type of node '", n->name(), "'");
+    const auto& infer_type = *infer_ret;
 
     if (infer_type.type_id() == TFT_UNSET) {
       VLOG(3) << "  " << n->name() << " no new type information";
@@ -121,7 +118,7 @@ Status ForwardTypeInferencePass::Run(
     }
 
     if (!n->def().has_experimental_type() ||
-        types_different(n->def().experimental_type(), infer_type)) {
+        !full_type::IsEqual(n->def().experimental_type(), infer_type)) {
       *(n->mutable_def()->mutable_experimental_type()) = infer_type;
       updated = true;
       VLOG(3) << "  " << n->name() << " updated";
@@ -172,18 +169,19 @@ Status ForwardTypeInferencePass::Run(
       int nid = queue.front();
       Node* n = g->FindNodeId(nid);
       bool updated = false;
+      bool no_type_info = false;
       VLOG(3) << "  visiting " << n->name();
       visits++;
       visit_count[nid]++;
 
-      TF_RETURN_IF_ERROR(process_node(n, updated));
+      TF_RETURN_IF_ERROR(process_node(n, updated, no_type_info));
       VLOG(4) << "  done " << n->def().DebugString();
 
       queue.pop_front();
       in_queue.erase(nid);
       open.erase(nid);
 
-      if (all_inputs_closed(*n, closed)) {
+      if (all_inputs_closed(*n, closed) || no_type_info) {
         VLOG(3) << "  closing " << n->name();
         closed.emplace(nid);
       }
@@ -227,8 +225,21 @@ Status ForwardTypeInferencePass::Run(
   return Status::OK();
 }
 
+Status WeakForwardTypeInferencePass::Run(
+    const GraphOptimizationPassOptions& options) {
+  ForwardTypeInferencePass pass;
+  const auto& pass_status = pass.Run(options);
+  if (!pass_status.ok()) {
+    LOG_FIRST_N(WARNING, 1)
+        << "Type inference failed. This indicates an "
+           "invalid graph that escaped type checking. Error message: "
+        << pass_status.ToString();
+  }
+  return Status::OK();
+}
+
 // Note: This needs to run last because Placer needs it.
 REGISTER_OPTIMIZATION(OptimizationPassRegistry::PRE_PLACEMENT, 99999,
-                      ForwardTypeInferencePass);
+                      WeakForwardTypeInferencePass);
 
 }  // namespace tensorflow

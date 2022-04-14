@@ -43,6 +43,8 @@ from .xla_extension import XlaOp as XlaOp
 
 _version: int
 
+mlir_api_version: int
+
 bfloat16: numpy.dtype
 XLA_ELEMENT_TYPE_TO_DTYPE: Dict[PrimitiveType, numpy.dtype]
 
@@ -151,6 +153,7 @@ def make_convolution_dimension_numbers(
 
 
 class PrecisionConfig:
+  Precision = _xla.PrecisionConfig_Precision
   operand_precision: List[_xla.PrecisionConfig_Precision]
 
 

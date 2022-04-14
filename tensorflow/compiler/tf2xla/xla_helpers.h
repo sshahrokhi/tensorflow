@@ -106,18 +106,7 @@ class XlaHelpers {
 // Creates an identity shape representation function.
 XlaHelpers::ShapeRepresentationFn IdentityShapeRepresentationFn();
 
-// Rewrites the layout of xla_shape if there is tiled sharding.
-Status RewriteLayoutWithShardedShape(
-    const absl::optional<xla::HloSharding>& sharding, bool use_fast_memory,
-    XlaHelpers::ShapeRepresentationFn shape_representation_fn,
-    xla::Shape* xla_shape);
 
-// Adds reshapes to fix the layout of an output, if a shape_representation_fn or
-// sharding is present.
-StatusOr<xla::XlaOp> ReshapeWithCorrectRepresentationAndSharding(
-    xla::XlaBuilder* builder, xla::XlaOp original, xla::Shape original_shape,
-    XlaHelpers::ShapeRepresentationFn shape_representation_fn,
-    absl::optional<xla::OpSharding> sharding, bool fast_mem);
 
 struct XlaOutputDescription {
   // Type and shape of the output. The shape is the unflattened shape.
@@ -210,15 +199,10 @@ struct XlaCompilationResult {
 // bundled into `run_options` if applicable.
 Status ResolveDeviceAssignment(
     OpKernelContext* ctx,
-    const absl::optional<XlaCompilationResult::CollectiveInfo>& collective_info,
+    const XlaCompilationResult::CollectiveInfo& collective_info,
     xla::ExecutableRunOptions& run_options,
     xla::DeviceAssignment& device_assignment,
     xla::gpu::GpuExecutableRunOptions& gpu_options);
-
-// Generate a message with a definition location based on a provided stack
-// trace, or an empty one if the stack trace is empty.
-std::string DefinitionLocationMsg(
-    const absl::optional<ManagedStackTrace>& stack_trace);
 
 }  // end namespace tensorflow
 

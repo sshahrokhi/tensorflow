@@ -1,4 +1,3 @@
-# Lint as: python3
 # Copyright 2017 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -44,7 +43,10 @@ profiler = _xla.profiler
 
 # Just an internal arbitrary increasing number to help with backward-compatible
 # changes.
-_version = 44
+_version = 63
+
+# Version number for MLIR:Python components.
+mlir_api_version = 6
 
 xla_platform_names = {
     'cpu': 'Host',
@@ -56,7 +58,7 @@ def make_interpreter_client():
   return _xla.get_interpreter_client()
 
 
-def make_cpu_client(*, use_tfrt=False):
+def make_cpu_client(*, use_tfrt: bool = True) -> ...:
   if use_tfrt:
     return _xla.get_tfrt_cpu_client(asynchronous=True)
   else:
@@ -93,7 +95,17 @@ def make_gpu_client(distributed_client=None, node_id=0):
 
 
 def make_tpu_client():
-  return _xla.get_tpu_client(max_inflight_computations=32)
+  """Returns a TPU client. Defaults to allowing 32 in-flight computations."""
+  max_inflight_computations = os.getenv(
+      'JAX_TPU_MAX_INFLIGHT_COMPUTATIONS', '32')
+  try:
+    max_inflight_computations = int(max_inflight_computations)
+  except ValueError as e:
+    raise ValueError(
+        f'JAX_TPU_MAX_INFLIGHT_COMPUTATIONS env var must be an int, '
+        f'got {max_inflight_computations}') from e
+  return _xla.get_tpu_client(
+      max_inflight_computations=max_inflight_computations)
 
 
 class OpMetadata:
@@ -378,7 +390,7 @@ Client = _xla.Client
 Buffer = _xla.Buffer
 DeviceArrayBase = _xla.DeviceArrayBase
 Executable = _xla.Executable
-OpSharding = _xla.OpSharding  # type: ignore
+OpSharding = _xla.OpSharding
 
 
 def register_custom_call_target(name, fn, platform='cpu'):

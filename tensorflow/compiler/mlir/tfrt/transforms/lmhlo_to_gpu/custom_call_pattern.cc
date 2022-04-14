@@ -22,7 +22,7 @@
 #include <iterator>
 #include <string>
 
-#include "mlir-hlo/Dialect/mhlo/IR/lhlo_ops.h"
+#include "mlir-hlo/Dialect/lhlo/IR/lhlo_ops.h"
 #include "llvm/ADT/Sequence.h"
 #include "mlir/IR/BuiltinAttributes.h"  // from @llvm-project
 #include "tensorflow/compiler/xla/service/gpu/xlir_ops.h"
@@ -34,9 +34,9 @@ namespace tensorflow {
 namespace {
 
 struct CustomCallRewritePattern
-    : tfrt::gpu::GpuAsyncOpConversionPattern<lmhlo::CustomCallOp> {
-  using tfrt::gpu::GpuAsyncOpConversionPattern<
-      lmhlo::CustomCallOp>::GpuAsyncOpConversionPattern;
+    : tfrt::gpu::StreamifyOpConversionPattern<lmhlo::CustomCallOp> {
+  using tfrt::gpu::StreamifyOpConversionPattern<
+      lmhlo::CustomCallOp>::StreamifyOpConversionPattern;
   FailureOr<Value> matchAndRewriteOp(
       lmhlo::CustomCallOp op, OpAdaptor adaptor, Value chain, Value stream,
       ConversionPatternRewriter& rewriter) const override {

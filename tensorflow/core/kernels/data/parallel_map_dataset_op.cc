@@ -133,6 +133,14 @@ class ParallelMapDatasetOp::Dataset : public DatasetBase {
     }
   }
 
+  int64_t CardinalityInternal(CardinalityOptions options) const override {
+    if (preserve_cardinality_) {
+      return input_->Cardinality(options);
+    } else {
+      return kUnknownCardinality;
+    }
+  }
+
   Status Get(OpKernelContext* ctx, int64 index,
              std::vector<Tensor>* out_tensors) const override {
     TF_RETURN_IF_ERROR(CheckRandomAccessCompatible(index));
@@ -248,7 +256,7 @@ class ParallelMapDatasetOp::Dataset : public DatasetBase {
       interleave_depth_ = ctx->interleave_depth();
 
       if (num_parallel_calls_->value == model::kAutotune) {
-        num_parallel_calls_->value = ctx->runner_threadpool_size();
+        num_parallel_calls_->value = GetAutotuneDefaultParallelism(ctx);
       }
       cancellation_manager_ = absl::make_unique<CancellationManager>();
       TF_RETURN_IF_ERROR(RegisterCancellationCallback(
@@ -685,9 +693,9 @@ class ParallelMapDatasetOp::Dataset : public DatasetBase {
     // Buffer for storing the invocation results.
     std::deque<std::shared_ptr<InvocationResult>> invocation_results_
         TF_GUARDED_BY(*mu_);
+    bool cancelled_ TF_GUARDED_BY(*mu_) = false;
     std::unique_ptr<Thread> runner_thread_ TF_GUARDED_BY(*mu_);
     std::unique_ptr<Thread> stats_thread_ TF_GUARDED_BY(*mu_);
-    bool cancelled_ TF_GUARDED_BY(*mu_) = false;
 
     // Method for deregistering the cancellation callback.
     std::function<void()> deregister_fn_;
@@ -764,13 +772,7 @@ void ParallelMapDatasetOp::MakeDataset(OpKernelContext* ctx, DatasetBase* input,
                                           &captured_func));
 
   if (num_parallel_calls == model::kAutotune) {
-    auto experiments = GetExperiments();
-    if (experiments.contains("max_parallelism") &&
-        !experiments.contains("max_parallelism_v2")) {
-      num_parallel_calls = GetCpuBudget();
-    } else {
-      metrics::RecordTFDataAutotune(kDatasetType);
-    }
+    metrics::RecordTFDataAutotune(kDatasetType);
   }
 
   *output =
