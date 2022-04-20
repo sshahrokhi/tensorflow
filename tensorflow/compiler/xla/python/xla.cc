@@ -80,6 +80,10 @@ bool IsOptimizedBuild() {
 PYBIND11_MODULE(xla_extension, m) {
   CHECK(tensorflow::RegisterNumpyBfloat16());
 
+  // Exceptions
+  py::register_exception<XlaRuntimeError>(m, "XlaRuntimeError",
+                                          PyExc_RuntimeError);
+
   // Types
   py::enum_<PrimitiveType>(m, "PrimitiveType")
       .value("PRIMITIVE_TYPE_INVALID", PRIMITIVE_TYPE_INVALID)
@@ -309,7 +313,8 @@ PYBIND11_MODULE(xla_extension, m) {
       .def_readwrite("alias_size_in_bytes",
                      &CompiledMemoryStats::alias_size_in_bytes)
       .def_readwrite("temp_size_in_bytes",
-                     &CompiledMemoryStats::temp_size_in_bytes);
+                     &CompiledMemoryStats::temp_size_in_bytes)
+      .def("__str__", &CompiledMemoryStats::DebugString);
 
   py::class_<PyExecutable, std::shared_ptr<PyExecutable>> executable(
       m, "Executable");
